@@ -1,55 +1,121 @@
 import { Programa, Instituicao, FiltrosPrograma } from '@/types/domain'
-import { programas } from '@/data/programas'
-import { instituicoes } from '@/data/instituicoes'
+//import { programas } from '@/data/programas'
+//import { instituicoes } from '@/data/instituicoes'
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+interface ProgramaDTO {
+  id: string;
+  titulo: string;
+  instituicaoId: string;
+  area: string;
+  modalidade: string;
+  nivel: string;
+  publicoAlvo: string;
+  periodoInicio: string;
+  periodoFim: string;
+  editalUrl: string;
+  cidade: string;
+  estado: string;
+  tags: string[];
+  resumo: string;
+  descricaoCompleta: string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export class ProgramasService {
-  async listarProgramas(filtros?: Partial<FiltrosPrograma>): Promise<Programa[]> {
-    await delay(300) 
-    
-    let resultado = [...programas]
-    
-    if (filtros) {
-      if (filtros.busca) {
-        const busca = filtros.busca.toLowerCase()
-        resultado = resultado.filter(programa => 
-          programa.titulo.toLowerCase().includes(busca) ||
-          programa.resumo.toLowerCase().includes(busca) ||
-          programa.tags.some(tag => tag.toLowerCase().includes(busca))
-        )
-      }
-      
-      if (filtros.area) {
-        resultado = resultado.filter(programa => programa.area === filtros.area)
-      }
-      
-      if (filtros.modalidade) {
-        resultado = resultado.filter(programa => programa.modalidade === filtros.modalidade)
-      }
-      
-      if (filtros.nivel) {
-        resultado = resultado.filter(programa => programa.nivel === filtros.nivel)
-      }
+  
+  // Helper genérico para chamadas fetch
+  private async fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    // Verifica se a URL da API foi definida
+    if (!API_URL) {
+      console.error("NEXT_PUBLIC_API_URL não está definida no .env.local");
+      throw new Error("Configuração de API ausente");
     }
-    
-    return resultado
+
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      // Importante para garantir que o Next.js não cacheie dados velhos em dev
+      cache: 'no-store' 
+    });
+
+    if (!res.ok) {
+      throw new Error(`Erro na API: ${res.status} ${res.statusText}`);
+    }
+
+    return res.json();
+  }
+
+  private mapProgramaToDomain(dto: ProgramaDTO): Programa {
+    return {
+      ...dto,
+      periodoInscricao: {
+        inicio: dto.periodoInicio,
+        fim: dto.periodoFim
+      },
+      // Cast de tipos (string -> Union Type)
+      area: dto.area as any, 
+      modalidade: dto.modalidade as any,
+      nivel: dto.nivel as any,
+    };
+  }
+
+  async listarProgramas(filtros?: Partial<FiltrosPrograma>): Promise<Programa[]> {
+    try {
+      const programasDTO = await this.fetchAPI<ProgramaDTO[]>('/programas');
+
+      let resultado = programasDTO.map(dto => this.mapProgramaToDomain(dto));
+
+      if (filtros) {
+        if (filtros.busca) {
+          const busca = filtros.busca.toLowerCase();
+          resultado = resultado.filter(p => 
+            p.titulo.toLowerCase().includes(busca) ||
+            p.resumo.toLowerCase().includes(busca) ||
+            p.tags.some(tag => tag.toLowerCase().includes(busca))
+          );
+        }
+        if (filtros.area) resultado = resultado.filter(p => p.area === filtros.area);
+        if (filtros.modalidade) resultado = resultado.filter(p => p.modalidade === filtros.modalidade);
+        if (filtros.nivel) resultado = resultado.filter(p => p.nivel === filtros.nivel);
+      }
+      
+      return resultado;
+    } catch (error) {
+      console.error("Falha ao listar programas:", error);
+      return [];
+    }
   }
   
   async buscarPrograma(id: string): Promise<Programa | null> {
-    await delay(200)
-    return programas.find(programa => programa.id === id) || null
+    try {
+      const dto = await this.fetchAPI<ProgramaDTO>(`/programas/${id}`);
+      return this.mapProgramaToDomain(dto);
+    } catch (error) {
+      console.error('Erro ao buscar programa:', error);
+      return null;
+    }
   }
   
   async listarInstituicoes(): Promise<Instituicao[]> {
-    await delay(200)
-    return [...instituicoes]
+    try {
+      return await this.fetchAPI<Instituicao[]>('/instituicoes');
+    } catch (error) {
+      console.error("Falha ao listar instituições:", error);
+      return [];
+    }
   }
   
   async buscarInstituicao(id: string): Promise<Instituicao | null> {
-    await delay(150)
-    return instituicoes.find(instituicao => instituicao.id === id) || null
+    try {
+      return await this.fetchAPI<Instituicao>(`/instituicoes/${id}`);
+    } catch (error) {
+      return null;
+    }
   }
 }
 
-export const programasService = new ProgramasService()
+export const programasService = new ProgramasService();
